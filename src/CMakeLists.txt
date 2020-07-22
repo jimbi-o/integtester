@@ -19,7 +19,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(foonathan_memory)
 
-
 add_executable(integtester)
 
 target_compile_features(integtester PUBLIC cxx_std_17)
@@ -34,4 +33,5 @@ target_include_directories(integtester
 )
 target_sources(integtester PRIVATE
   "test.cpp"
+  "foonathan_memory_test.cpp"
 )
