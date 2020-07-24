@@ -37,18 +37,20 @@ class Allocator {
   typedef ptrdiff_t difference_type;
   typedef std::true_type propagate_on_container_move_assignment;
   typedef std::true_type is_always_equal;
-  explicit Allocator() throw() { }
-  explicit Allocator(const Allocator&) throw() {}
-  template<typename T1>
-  explicit Allocator(const Allocator<T1, sizeof(T1), _Alignof(T)>&) throw() {}
+  explicit Allocator(LinearAllocator* const linear_allocator) throw() : linear_allocator_(linear_allocator) { }
+  explicit Allocator(const Allocator& a) throw() : linear_allocator_(a.linear_allocator_) {}
+  template<typename U>
+  explicit Allocator(const Allocator<U, sizeof(U), _Alignof(U)>& a) throw() : linear_allocator_(a.linear_allocator_) {}
   ~Allocator() throw() { }
   [[nodiscard]] constexpr T* allocate(std::size_t n) {
     auto ptr = linear_allocator_->Alloc(size_in_bytes * n, align);
     return static_cast<T*>(ptr);
   }
   constexpr void deallocate(T* p, std::size_t n) {}
-  constexpr void SetAllocator(LinearAllocator* const allocator) { linear_allocator_ = allocator; }
+  template<typename U>
+  struct rebind { typedef Allocator<U, size_in_bytes, align> other; };
  private:
+  Allocator() = delete;
   LinearAllocator* linear_allocator_ = nullptr;
 };
 template <typename T>
@@ -145,10 +147,9 @@ TEST_CASE("linear allocator") {
 }
 TEST_CASE("allocator_t") {
   using namespace illuminate::memory;
-  allocator_t<uint32_t> a;
   uint8_t buffer[1024]{};
   LinearAllocator la(buffer, 1024);
-  a.SetAllocator(&la);
+  allocator_t<uint32_t> a(&la);
   auto ptr = a.allocate(1);
   auto ptr2 = a.allocate(2);
   auto ptr3 = a.allocate(5);
@@ -166,6 +167,18 @@ TEST_CASE("allocator_t") {
   }
 }
 TEST_CASE("allocator_t with single vector") {
+  using namespace illuminate::memory;
+  uint8_t buffer[1024]{};
+  LinearAllocator la(buffer, 1024);
+  allocator_t<uint32_t> a(&la);
+  vector<uint32_t> v(a);
+  for (uint32_t i = 0; i < 64; i++) {
+    v.push_back(i);
+  }
+  for (uint32_t i = 0; i < 64; i++) {
+    CAPTURE(i);
+    CHECK(v[i] == i);
+  }
 }
 TEST_CASE("allocator_t with multiple vector") {
 }

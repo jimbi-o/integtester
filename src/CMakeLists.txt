@@ -28,3 +28,5 @@ target_sources(integtester PRIVATE
   "test.cpp"
   "custom_allocator_test.cpp"
 )
+
+set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT integtester)
