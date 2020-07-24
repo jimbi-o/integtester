@@ -16,20 +16,20 @@ class LinearAllocator {
  public:
   explicit LinearAllocator(void* const buffer, const size_t size_in_bytes) : head_(reinterpret_cast<uintptr_t>(buffer)), offset_(0), size_in_bytes_(size_in_bytes) {}
   ~LinearAllocator() {}
-  void* Alloc(const size_t size_in_bytes, const size_t alignment_in_bytes) {
+  inline void* Alloc(const size_t size_in_bytes, const size_t alignment_in_bytes) {
     auto aligned_address = AlignAddress(head_ + offset_, alignment_in_bytes);
     offset_ = aligned_address - head_ + size_in_bytes;
     // assert(offset_ <= size_in_bytes_);
     return reinterpret_cast<void*>(aligned_address);
   }
-  constexpr void Free() { offset_ = 0; }
-  constexpr size_t GetOffset() const { return offset_; }
+  inline constexpr void Free() { offset_ = 0; }
+  inline constexpr size_t GetOffset() const { return offset_; }
  private:
   std::uintptr_t head_;
   size_t offset_;
   size_t size_in_bytes_;
 };
-template <typename T>
+template <typename T, size_t size_in_bytes, size_t align>
 class Allocator {
  public:
   typedef T value_type;
@@ -37,28 +37,36 @@ class Allocator {
   typedef ptrdiff_t difference_type;
   typedef std::true_type propagate_on_container_move_assignment;
   typedef std::true_type is_always_equal;
-  Allocator() throw() { }
-  Allocator(const Allocator& __a) throw() {}
+  explicit Allocator() throw() { }
+  explicit Allocator(const Allocator&) throw() {}
   template<typename T1>
-  Allocator(const Allocator<T1>&) throw() {}
+  explicit Allocator(const Allocator<T1, sizeof(T1), _Alignof(T)>&) throw() {}
   ~Allocator() throw() { }
-  [[nodiscard]] constexpr T* allocate(std::size_t n) { return nullptr; }
+  [[nodiscard]] constexpr T* allocate(std::size_t n) {
+    auto ptr = linear_allocator_->Alloc(size_in_bytes * n, align);
+    return static_cast<T*>(ptr);
+  }
   constexpr void deallocate(T* p, std::size_t n) {}
+  constexpr void SetAllocator(LinearAllocator* const allocator) { linear_allocator_ = allocator; }
+ private:
+  LinearAllocator* linear_allocator_ = nullptr;
 };
 template <typename T>
-using set = std::set<T, Allocator<T>>;
+using allocator_t = Allocator<T, sizeof(T), _Alignof(T)>;
 template <typename T>
-using unordered_map = std::unordered_map<T, Allocator<T>>;
+using set = std::set<T, allocator_t<T>>;
 template <typename T>
-using vector = std::vector<T, Allocator<T>>;
+using unordered_map = std::unordered_map<T, allocator_t<T>>;
+template <typename T>
+using vector = std::vector<T, allocator_t<T>>;
 class MemoryManager {
  public:
   template <typename T>
-  Allocator<T> GetAllocatorLocal();
+  allocator_t<T> GetAllocatorLocal();
   template <typename T>
-  Allocator<T> GetAllocatorOneFrame();
+  allocator_t<T> GetAllocatorOneFrame();
   template <typename T>
-  Allocator<T> GetAllocatorFrameBuffered();
+  allocator_t<T> GetAllocatorFrameBuffered();
   void SucceedToNextFrame(); // for frame buffered
   void* GetCurrentHead(); // frame buffered
   void* GetPrevHead(); // frame buffered
@@ -135,11 +143,33 @@ TEST_CASE("linear allocator") {
   CHECK(reinterpret_cast<std::uintptr_t>(ptr) % alignment == 0);
   CHECK(ptr);
 }
-#if 0
-TEST_CASE("Allocator class") {
+TEST_CASE("allocator_t") {
   using namespace illuminate::memory;
-  Allocator<uint32_t> a;
+  allocator_t<uint32_t> a;
+  uint8_t buffer[1024]{};
+  LinearAllocator la(buffer, 1024);
+  a.SetAllocator(&la);
+  auto ptr = a.allocate(1);
+  auto ptr2 = a.allocate(2);
+  auto ptr3 = a.allocate(5);
+  *ptr = 1;
+  ptr2[0] = 2;
+  ptr2[1] = 3;
+  ptr3[0] = 4;
+  ptr3[1] = 5;
+  ptr3[2] = 6;
+  ptr3[3] = 7;
+  ptr3[4] = 8;
+  for (uint32_t i = 0; i < 8; i++) {
+    CAPTURE(i);
+    CHECK(ptr[i] == i + 1);
+  }
 }
+TEST_CASE("allocator_t with single vector") {
+}
+TEST_CASE("allocator_t with multiple vector") {
+}
+#if 0
 TEST_CASE("inside a function") {
   using namespace illuminate::memory;
   MemoryManager memory;
