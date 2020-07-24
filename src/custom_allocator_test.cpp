@@ -68,16 +68,44 @@ template <typename T>
 using vector = std::vector<T, allocator_t<T>>;
 class MemoryManager {
  public:
+  struct MemoryManagerConfig {
+    uint32_t frame_num;
+    void* buffer_tmp;
+    void* buffer_one_frame;
+    void** buffer_frame_buffered;
+    size_t size_in_bytes_tmp;
+    size_t size_in_bytes_one_frame;
+    size_t size_in_bytes_frame_buffered;
+  };
+  explicit MemoryManager(MemoryManagerConfig&& config)
+      : config_(std::move(config))
+  {
+    allocator_one_frame_ = new LinearAllocator(config_.buffer_one_frame, config_.size_in_bytes_one_frame);
+    allocator_frame_buffered_ = new LinearAllocator*[config_.frame_num];
+    for (uint32_t i = 0; i < config_.frame_num; i++) {
+      allocator_frame_buffered_[i] = new LinearAllocator(config_.buffer_frame_buffered[i], config_.size_in_bytes_frame_buffered);
+    }
+  }
+  ~MemoryManager() {
+    delete allocator_one_frame_;
+    for (uint32_t i = 0; i < config_.frame_num; i++) {
+      delete allocator_frame_buffered_[i];
+    }
+    delete[] allocator_frame_buffered_;
+  }
   template <typename T>
   allocator_t<T> GetAllocatorLocal();
   template <typename T>
-  allocator_t<T> GetAllocatorOneFrame();
+  constexpr allocator_t<T> GetAllocatorOneFrame() const { return allocator_t<T>(allocator_one_frame_); }
   template <typename T>
   allocator_t<T> GetAllocatorFrameBuffered();
   void SucceedToNextFrame(); // for frame buffered
   void* GetCurrentHead(); // frame buffered
   void* GetPrevHead(); // frame buffered
  private:
+  MemoryManagerConfig config_;
+  LinearAllocator* allocator_one_frame_ = nullptr;
+  LinearAllocator** allocator_frame_buffered_ = nullptr;
 };
 }
 #include "doctest/doctest.h"
@@ -210,6 +238,28 @@ TEST_CASE("allocator_t with multiple vector") {
     v2.pop_back();
   }
 }
+namespace {
+illuminate::memory::MemoryManager::MemoryManagerConfig CreateTestMemoryManagerConfig() {
+  const uint32_t size_in_bytes_tmp = 16 * 1024;
+  const uint32_t size_in_bytes_one_frame = 16 * 1024;
+  const uint32_t size_in_bytes_frame_buffered = 16 * 1024;
+  static uint8_t buffer_tmp[size_in_bytes_tmp]{};
+  static uint8_t buffer_one_frame[size_in_bytes_one_frame]{};
+  static uint8_t buffer_frame_buffered1[size_in_bytes_frame_buffered]{};
+  static uint8_t buffer_frame_buffered2[size_in_bytes_frame_buffered]{};
+  static void* buffer_frame_buffered[2]{buffer_frame_buffered1, buffer_frame_buffered2};
+  using namespace illuminate::memory;
+  MemoryManager::MemoryManagerConfig config{};
+  config.frame_num = 2;
+  config.buffer_tmp = buffer_tmp;
+  config.buffer_one_frame = buffer_one_frame;
+  config.buffer_frame_buffered = buffer_frame_buffered;
+  config.size_in_bytes_tmp = size_in_bytes_tmp;
+  config.size_in_bytes_one_frame = size_in_bytes_one_frame;
+  config.size_in_bytes_frame_buffered = size_in_bytes_frame_buffered;
+  return config;
+}
+}
 #if 0
 TEST_CASE("inside a function") {
   using namespace illuminate::memory;
@@ -220,9 +270,10 @@ TEST_CASE("inside a function") {
   }
   CHECK(vec.back() == 9);
 }
+#endif
 TEST_CASE("passing pointer from a function to another") {
   using namespace illuminate::memory;
-  MemoryManager memory;
+  MemoryManager memory(CreateTestMemoryManagerConfig());
   uint32_t* ptr = nullptr;
   {
     vector<uint32_t> vec(memory.GetAllocatorOneFrame<uint32_t>());
@@ -242,7 +293,8 @@ TEST_CASE("passing pointer from a function to another") {
   CHECK(ptr[9] == 9);
   CHECK(*ptr2 == 100);
 }
-TEST_CASE("frame buffered") {
+#if 0
+ TEST_CASE("frame buffered") {
   using namespace illuminate::memory;
   MemoryManager memory;
   static_cast<uint32_t*>(memory.GetPrevHead())[9] = 255;
