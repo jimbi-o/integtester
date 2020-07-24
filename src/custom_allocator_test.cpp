@@ -40,7 +40,7 @@ class Allocator {
   explicit Allocator(LinearAllocator* const linear_allocator) throw() : linear_allocator_(linear_allocator) { }
   explicit Allocator(const Allocator& a) throw() : linear_allocator_(a.linear_allocator_) {}
   template<typename U>
-  explicit Allocator(const Allocator<U, sizeof(U), _Alignof(U)>& a) throw() : linear_allocator_(a.linear_allocator_) {}
+  explicit Allocator(const Allocator<U, sizeof(U), _Alignof(U)>& a) throw() : linear_allocator_(a.GetLinearAllocator()) {}
   ~Allocator() throw() { }
   [[nodiscard]] constexpr T* allocate(std::size_t n) {
     auto ptr = linear_allocator_->Alloc(size_in_bytes * n, align);
@@ -49,6 +49,7 @@ class Allocator {
   constexpr void deallocate(T* p, std::size_t n) {}
   template<typename U>
   struct rebind { typedef Allocator<U, size_in_bytes, align> other; };
+  constexpr LinearAllocator* GetLinearAllocator() const { return linear_allocator_; }
  private:
   Allocator() = delete;
   LinearAllocator* linear_allocator_ = nullptr;

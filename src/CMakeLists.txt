@@ -29,4 +29,7 @@ target_sources(integtester PRIVATE
   "custom_allocator_test.cpp"
 )
 
-set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT integtester)
+if (MSVC)
+  set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT integtester)
+  target_compile_definitions(integtester PUBLIC _ITERATOR_DEBUG_LEVEL=0)
+endif()
