@@ -25,6 +25,9 @@ class LinearAllocator {
   inline constexpr void Free() { offset_ = 0; }
   inline constexpr size_t GetOffset() const { return offset_; }
  private:
+  LinearAllocator() = delete;
+  LinearAllocator(const LinearAllocator&) = delete;
+  LinearAllocator& operator=(const LinearAllocator&) = delete;
   std::uintptr_t head_;
   size_t offset_;
   size_t size_in_bytes_;
@@ -56,6 +59,7 @@ class Allocator {
 };
 template <typename T>
 using allocator_t = Allocator<T, sizeof(T), _Alignof(T)>;
+// Calling resize() or reserve() is recommended before inserting elements due to LinearAllocator.
 template <typename T>
 using set = std::set<T, allocator_t<T>>;
 template <typename T>
@@ -182,6 +186,29 @@ TEST_CASE("allocator_t with single vector") {
   }
 }
 TEST_CASE("allocator_t with multiple vector") {
+  using namespace illuminate::memory;
+  uint8_t buffer[10 * 1024]{};
+  LinearAllocator la(buffer, 10 * 1024);
+  allocator_t<uint32_t> a(&la);
+  vector<uint32_t> v1(a);
+  vector<uint32_t> v2(a);
+  for (uint32_t i = 0; i < 64; i++) {
+    v1.push_back(i);
+    v2.push_back(64-i);
+  }
+  for (uint32_t i = 0; i < 64; i++) {
+    CAPTURE(i);
+    CHECK(v1[i] == i);
+    CHECK(v2[i] == 64-i);
+  }
+  while (!v1.empty()) {
+    CHECK(v1.back() == v1.size() - 1);
+    v1.pop_back();
+  }
+  while (!v2.empty()) {
+    CHECK(v2.back() == 65 - v2.size());
+    v2.pop_back();
+  }
 }
 #if 0
 TEST_CASE("inside a function") {
