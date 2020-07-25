@@ -26,7 +26,6 @@ class LinearAllocator {
   inline constexpr size_t GetOffset() const { return offset_; }
  private:
   LinearAllocator() = delete;
-  LinearAllocator(const LinearAllocator&) = delete;
   LinearAllocator& operator=(const LinearAllocator&) = delete;
   std::uintptr_t head_;
   size_t offset_;
@@ -35,12 +34,13 @@ class LinearAllocator {
 template <typename T>
 class MemoryJanitor {
  public:
-  explicit MemoryJanitor(T* allocator) : allocator_(allocator) {};
-  ~MemoryJanitor() { allocator_->Free(); }
+  explicit MemoryJanitor(void* buffer, const size_t size_in_bytes) : allocator_(buffer, size_in_bytes) {};
+  ~MemoryJanitor() { allocator_.Free(); }
+  constexpr T* GetAllocator() { return &allocator_; }
  private:
-  T* allocator_ = nullptr;
+  T allocator_;
 };
-using memory_janitor_t = MemoryJanitor<LinearAllocator>;
+using alloc_janitor_t = MemoryJanitor<LinearAllocator>;
 template <typename T, typename A, size_t size_in_bytes, size_t align>
 class Allocator {
  public:
@@ -284,11 +284,10 @@ illuminate::memory::MemoryManager::MemoryManagerConfig CreateTestMemoryManagerCo
 TEST_CASE("buffer released when out of scope") {
   using namespace illuminate::memory;
   uint8_t buffer[16 * 1024]{};
-  LinearAllocator linear_allocator(buffer, 16 * 1024);
   void* ptr = nullptr;
   {
-    memory_janitor_t janitor(&linear_allocator);
-    allocator_t<uint32_t> a(&linear_allocator);
+    alloc_janitor_t janitor(buffer, 16*1024);
+    allocator_t<uint32_t> a(janitor.GetAllocator());
     vector<uint32_t> vec(a);
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i);
@@ -297,8 +296,8 @@ TEST_CASE("buffer released when out of scope") {
     ptr = vec.data();
   }
   {
-    memory_janitor_t janitor(&linear_allocator);
-    allocator_t<uint32_t> a(&linear_allocator);
+    alloc_janitor_t janitor(buffer, 16*1024);
+    allocator_t<uint32_t> a(janitor.GetAllocator());
     vector<uint32_t> vec(a);
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i*10);
