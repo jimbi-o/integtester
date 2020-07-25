@@ -274,15 +274,64 @@ illuminate::memory::MemoryManager::MemoryManagerConfig CreateTestMemoryManagerCo
   return config;
 }
 }
+TEST_CASE("buffer released when out of scope") {
+  using namespace illuminate::memory;
+  uint8_t buffer[16 * 1024]{};
+  LinearAllocator linear_allocator(buffer, 16 * 1024);
+  void* ptr = nullptr;
+  {
+    allocator_t<uint32_t> a(&linear_allocator);
+    vector<uint32_t> vec(a);
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(vec.back() == 9);
+    ptr = vec.data();
+  }
+  {
+    allocator_t<uint32_t> a(&linear_allocator);
+    vector<uint32_t> vec(a);
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i*10);
+    }
+    CHECK(vec.back() == 90);
+    CHECK(ptr == vec.data());
+    vector<uint32_t> vec2(a);
+    for (uint32_t i = 0; i < 10; i++) {
+      vec2.push_back(i*10);
+    }
+    CHECK(vec2.back() == 90);
+    CHECK(vec2.data() > vec.data());
+  }
+}
 #if 0
 TEST_CASE("inside a function") {
   using namespace illuminate::memory;
-  MemoryManager memory;
-  vector<uint32_t> vec(memory.GetAllocatorLocal<uint32_t>());
-  for (uint32_t i = 0; i < 10; i++) {
-    vec.push_back(i);
+  MemoryManager memory(CreateTestMemoryManagerConfig());
+  void* ptr = nullptr;
+  {
+    vector<uint32_t> vec(memory.GetAllocatorLocal<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(vec.back() == 9);
+    ptr = vec.data();
   }
-  CHECK(vec.back() == 9);
+  {
+    auto a = memory.GetAllocatorLocal<uint32_t>();
+    vector<uint32_t> vec(a);
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i*10);
+    }
+    CHECK(vec.back() == 90);
+    CHECK(ptr == vec.data());
+    vector<uint32_t> vec2(a);
+    for (uint32_t i = 0; i < 10; i++) {
+      vec2.push_back(i*10);
+    }
+    CHECK(vec2.back() == 90);
+    CHECK(vec2.data() > vec.data());
+  }
 }
 #endif
 TEST_CASE("one frame allocator") {
