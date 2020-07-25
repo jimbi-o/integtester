@@ -78,7 +78,7 @@ class MemoryManager {
     size_t size_in_bytes_frame_buffered;
   };
   explicit MemoryManager(MemoryManagerConfig&& config)
-      : config_(std::move(config))
+      : config_(std::move(config)), prev_frame_index_(config.frame_num - 1)
   {
     allocator_one_frame_ = new LinearAllocator(config_.buffer_one_frame, config_.size_in_bytes_one_frame);
     allocator_frame_buffered_ = new LinearAllocator*[config_.frame_num];
@@ -98,14 +98,28 @@ class MemoryManager {
   template <typename T>
   constexpr allocator_t<T> GetAllocatorOneFrame() const { return allocator_t<T>(allocator_one_frame_); }
   template <typename T>
-  allocator_t<T> GetAllocatorFrameBuffered();
-  void SucceedToNextFrame(); // for frame buffered
-  void* GetCurrentHead(); // frame buffered
-  void* GetPrevHead(); // frame buffered
+  constexpr allocator_t<T> GetAllocatorFrameBuffered() const { return allocator_t<T>(allocator_frame_buffered_[frame_index_]); }
+  constexpr uint32_t GetFrameIndex() const { return frame_index_; }
+  constexpr uint32_t GetPrevFrameIndex() const { return prev_frame_index_; }
+  constexpr void SucceedToNextFrame() { // for frame buffered
+    prev_frame_index_ = frame_index_;
+    frame_index_++;
+    if (frame_index_ >= config_.frame_num) frame_index_ = 0;
+    allocator_frame_buffered_[frame_index_]->Free();
+    allocator_one_frame_->Free();
+  }
+  constexpr void* GetCurrentHead() const { // for frame buffered
+    return config_.buffer_frame_buffered[frame_index_];
+  }
+  constexpr void* GetPrevHead() const { // for frame buffered
+    return config_.buffer_frame_buffered[prev_frame_index_];
+  }
  private:
   MemoryManagerConfig config_;
   LinearAllocator* allocator_one_frame_ = nullptr;
   LinearAllocator** allocator_frame_buffered_ = nullptr;
+  uint32_t frame_index_ = 0;
+  uint32_t prev_frame_index_ = 0;
 };
 }
 #include "doctest/doctest.h"
@@ -271,7 +285,7 @@ TEST_CASE("inside a function") {
   CHECK(vec.back() == 9);
 }
 #endif
-TEST_CASE("passing pointer from a function to another") {
+TEST_CASE("one frame allocator") {
   using namespace illuminate::memory;
   MemoryManager memory(CreateTestMemoryManagerConfig());
   uint32_t* ptr = nullptr;
@@ -293,23 +307,77 @@ TEST_CASE("passing pointer from a function to another") {
   CHECK(ptr[9] == 9);
   CHECK(*ptr2 == 100);
 }
-#if 0
- TEST_CASE("frame buffered") {
+TEST_CASE("frame success - one frame") {
   using namespace illuminate::memory;
-  MemoryManager memory;
-  static_cast<uint32_t*>(memory.GetPrevHead())[9] = 255;
+  MemoryManager memory(CreateTestMemoryManagerConfig());
+  uint32_t* ptr = nullptr;
+  {
+    vector<uint32_t> vec(memory.GetAllocatorOneFrame<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    ptr = vec.data();
+  }
+  {
+    vector<uint32_t> vec(memory.GetAllocatorOneFrame<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(ptr < vec.data());
+  }
+  memory.SucceedToNextFrame();
+  {
+    vector<uint32_t> vec(memory.GetAllocatorOneFrame<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(ptr == vec.data());
+  }
+}
+TEST_CASE("frame success - frame buffered") {
+  using namespace illuminate::memory;
+  MemoryManager memory(CreateTestMemoryManagerConfig());
+  static_cast<uint32_t*>(memory.GetCurrentHead())[9] = 255;
   CHECK(static_cast<uint32_t*>(memory.GetCurrentHead())[9] == 255);
   memory.SucceedToNextFrame();
+  static_cast<uint32_t*>(memory.GetCurrentHead())[9] = 1024;
+  CHECK(static_cast<uint32_t*>(memory.GetCurrentHead())[9] == 1024);
   CHECK(static_cast<uint32_t*>(memory.GetPrevHead())[9] == 255);
+  memory.SucceedToNextFrame();
+  CHECK(static_cast<uint32_t*>(memory.GetPrevHead())[9] == 1024);
+}
+TEST_CASE("frame success - frame buffered with allocator") {
+  using namespace illuminate::memory;
+  MemoryManager memory(CreateTestMemoryManagerConfig());
   uint32_t* ptr = nullptr;
   {
     vector<uint32_t> vec(memory.GetAllocatorFrameBuffered<uint32_t>());
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i);
     }
+    ptr = vec.data();
   }
-  CHECK(static_cast<uint32_t*>(memory.GetCurrentHead())[9] == 9);
+  {
+    vector<uint32_t> vec(memory.GetAllocatorFrameBuffered<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(ptr < vec.data());
+  }
   memory.SucceedToNextFrame();
-  CHECK(static_cast<uint32_t*>(memory.GetPrevHead())[9] == 9);
+  {
+    vector<uint32_t> vec(memory.GetAllocatorFrameBuffered<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(ptr != vec.data());
+  }
+  memory.SucceedToNextFrame();
+  {
+    vector<uint32_t> vec(memory.GetAllocatorFrameBuffered<uint32_t>());
+    for (uint32_t i = 0; i < 10; i++) {
+      vec.push_back(i);
+    }
+    CHECK(ptr == vec.data());
+  }
 }
-#endif
