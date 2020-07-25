@@ -31,16 +31,6 @@ class LinearAllocator {
   size_t offset_;
   size_t size_in_bytes_;
 };
-template <typename T>
-class MemoryJanitor {
- public:
-  explicit MemoryJanitor(void* buffer, const size_t size_in_bytes) : allocator_(buffer, size_in_bytes) {};
-  ~MemoryJanitor() { allocator_.Free(); }
-  constexpr T* GetAllocator() { return &allocator_; }
- private:
-  T allocator_;
-};
-using alloc_janitor_t = MemoryJanitor<LinearAllocator>;
 template <typename T, typename A, size_t size_in_bytes, size_t align>
 class Allocator {
  public:
@@ -75,6 +65,17 @@ template <typename T>
 using unordered_map = std::unordered_map<T, allocator_t<T>>;
 template <typename T>
 using vector = std::vector<T, allocator_t<T>>;
+template <typename T>
+class AllocJanitor {
+ public:
+  explicit AllocJanitor(void* buffer, const size_t size_in_bytes) : allocator_(buffer, size_in_bytes) {};
+  ~AllocJanitor() { allocator_.Free(); }
+  template <typename U>
+  constexpr allocator_t<U> GetAllocator() { return allocator_t<U>(&allocator_); }
+ private:
+  T allocator_;
+};
+using alloc_janitor_t = AllocJanitor<LinearAllocator>;
 class MemoryManager {
  public:
   struct MemoryManagerConfig {
@@ -102,6 +103,7 @@ class MemoryManager {
     }
     delete[] allocator_frame_buffered_;
   }
+  alloc_janitor_t GetAllocatorWorkJanitor() const { return alloc_janitor_t(config_.buffer_tmp, config_.size_in_bytes_tmp); }
   template <typename T>
   constexpr allocator_t<T> GetAllocatorOneFrame() const { return allocator_t<T>(allocator_one_frame_); }
   template <typename T>
@@ -287,8 +289,7 @@ TEST_CASE("buffer released when out of scope") {
   void* ptr = nullptr;
   {
     alloc_janitor_t janitor(buffer, 16*1024);
-    allocator_t<uint32_t> a(janitor.GetAllocator());
-    vector<uint32_t> vec(a);
+    vector<uint32_t> vec(janitor.GetAllocator<uint32_t>());
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i);
     }
@@ -297,7 +298,7 @@ TEST_CASE("buffer released when out of scope") {
   }
   {
     alloc_janitor_t janitor(buffer, 16*1024);
-    allocator_t<uint32_t> a(janitor.GetAllocator());
+    allocator_t<uint32_t> a(janitor.GetAllocator<uint32_t>());
     vector<uint32_t> vec(a);
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i*10);
@@ -312,13 +313,13 @@ TEST_CASE("buffer released when out of scope") {
     CHECK(vec2.data() > vec.data());
   }
 }
-#if 0
-TEST_CASE("inside a function") {
+TEST_CASE("scoped memory allocation with janitor") {
   using namespace illuminate::memory;
   MemoryManager memory(CreateTestMemoryManagerConfig());
   void* ptr = nullptr;
   {
-    vector<uint32_t> vec(memory.GetAllocatorLocal<uint32_t>());
+    auto janitor = memory.GetAllocatorWorkJanitor();
+    vector<uint32_t> vec(allocator_t<uint32_t>(janitor.GetAllocator<uint32_t>()));
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i);
     }
@@ -326,22 +327,25 @@ TEST_CASE("inside a function") {
     ptr = vec.data();
   }
   {
-    auto a = memory.GetAllocatorLocal<uint32_t>();
-    vector<uint32_t> vec(a);
+    auto janitor = memory.GetAllocatorWorkJanitor();
+    vector<uint32_t> vec(janitor.GetAllocator<uint32_t>());
     for (uint32_t i = 0; i < 10; i++) {
       vec.push_back(i*10);
     }
     CHECK(vec.back() == 90);
     CHECK(ptr == vec.data());
-    vector<uint32_t> vec2(a);
+    vector<uint32_t> vec2(janitor.GetAllocator<uint32_t>());
     for (uint32_t i = 0; i < 10; i++) {
       vec2.push_back(i*10);
     }
-    CHECK(vec2.back() == 90);
+    for (uint32_t i = 0; i < 10; i++) {
+      CAPTURE(i);
+      CHECK(vec[i] == i * 10);
+      CHECK(vec2[i] == i * 10);
+    }
     CHECK(vec2.data() > vec.data());
   }
 }
-#endif
 TEST_CASE("one frame allocator") {
   using namespace illuminate::memory;
   MemoryManager memory(CreateTestMemoryManagerConfig());
