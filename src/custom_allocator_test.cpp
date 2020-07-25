@@ -52,7 +52,7 @@ class Allocator {
   explicit Allocator(A* const allocator) throw() : allocator_(allocator) { }
   explicit Allocator(const Allocator& a) throw() : allocator_(a.allocator_) {}
   template<typename U>
-  explicit Allocator(const Allocator<U, A, sizeof(U), _Alignof(U)>& a) throw() : allocator_(a.GetA()) {}
+  explicit Allocator(const Allocator<U, A, sizeof(U), _Alignof(U)>& a) throw() : allocator_(a.GetAllocator()) {}
   ~Allocator() throw() { }
   [[nodiscard]] constexpr T* allocate(std::size_t n) {
     auto ptr = allocator_->Alloc(size_in_bytes * n, align);
@@ -61,7 +61,7 @@ class Allocator {
   constexpr void deallocate(T* p, std::size_t n) {}
   template<typename U>
   struct rebind { typedef Allocator<U, A, size_in_bytes, align> other; };
-  constexpr A* GetA() const { return allocator_; }
+  constexpr A* GetAllocator() const { return allocator_; }
  private:
   Allocator() = delete;
   A* allocator_ = nullptr;
