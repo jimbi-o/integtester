@@ -32,6 +32,15 @@ class LinearAllocator {
   size_t offset_;
   size_t size_in_bytes_;
 };
+template <typename T>
+class MemoryJanitor {
+ public:
+  explicit MemoryJanitor(T* allocator) : allocator_(allocator) {};
+  ~MemoryJanitor() { allocator_->Free(); }
+ private:
+  T* allocator_ = nullptr;
+};
+using memory_janitor_t = MemoryJanitor<LinearAllocator>;
 template <typename T, size_t size_in_bytes, size_t align>
 class Allocator {
  public:
@@ -93,8 +102,6 @@ class MemoryManager {
     }
     delete[] allocator_frame_buffered_;
   }
-  template <typename T>
-  allocator_t<T> GetAllocatorLocal();
   template <typename T>
   constexpr allocator_t<T> GetAllocatorOneFrame() const { return allocator_t<T>(allocator_one_frame_); }
   template <typename T>
@@ -280,6 +287,7 @@ TEST_CASE("buffer released when out of scope") {
   LinearAllocator linear_allocator(buffer, 16 * 1024);
   void* ptr = nullptr;
   {
+    memory_janitor_t janitor(&linear_allocator);
     allocator_t<uint32_t> a(&linear_allocator);
     vector<uint32_t> vec(a);
     for (uint32_t i = 0; i < 10; i++) {
@@ -289,6 +297,7 @@ TEST_CASE("buffer released when out of scope") {
     ptr = vec.data();
   }
   {
+    memory_janitor_t janitor(&linear_allocator);
     allocator_t<uint32_t> a(&linear_allocator);
     vector<uint32_t> vec(a);
     for (uint32_t i = 0; i < 10; i++) {
