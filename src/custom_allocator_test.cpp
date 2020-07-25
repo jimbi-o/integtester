@@ -41,7 +41,7 @@ class MemoryJanitor {
   T* allocator_ = nullptr;
 };
 using memory_janitor_t = MemoryJanitor<LinearAllocator>;
-template <typename T, size_t size_in_bytes, size_t align>
+template <typename T, typename A, size_t size_in_bytes, size_t align>
 class Allocator {
  public:
   typedef T value_type;
@@ -49,25 +49,25 @@ class Allocator {
   typedef ptrdiff_t difference_type;
   typedef std::true_type propagate_on_container_move_assignment;
   typedef std::true_type is_always_equal;
-  explicit Allocator(LinearAllocator* const linear_allocator) throw() : linear_allocator_(linear_allocator) { }
-  explicit Allocator(const Allocator& a) throw() : linear_allocator_(a.linear_allocator_) {}
+  explicit Allocator(A* const allocator) throw() : allocator_(allocator) { }
+  explicit Allocator(const Allocator& a) throw() : allocator_(a.allocator_) {}
   template<typename U>
-  explicit Allocator(const Allocator<U, sizeof(U), _Alignof(U)>& a) throw() : linear_allocator_(a.GetLinearAllocator()) {}
+  explicit Allocator(const Allocator<U, A, sizeof(U), _Alignof(U)>& a) throw() : allocator_(a.GetA()) {}
   ~Allocator() throw() { }
   [[nodiscard]] constexpr T* allocate(std::size_t n) {
-    auto ptr = linear_allocator_->Alloc(size_in_bytes * n, align);
+    auto ptr = allocator_->Alloc(size_in_bytes * n, align);
     return static_cast<T*>(ptr);
   }
   constexpr void deallocate(T* p, std::size_t n) {}
   template<typename U>
-  struct rebind { typedef Allocator<U, size_in_bytes, align> other; };
-  constexpr LinearAllocator* GetLinearAllocator() const { return linear_allocator_; }
+  struct rebind { typedef Allocator<U, A, size_in_bytes, align> other; };
+  constexpr A* GetA() const { return allocator_; }
  private:
   Allocator() = delete;
-  LinearAllocator* linear_allocator_ = nullptr;
+  A* allocator_ = nullptr;
 };
 template <typename T>
-using allocator_t = Allocator<T, sizeof(T), _Alignof(T)>;
+using allocator_t = Allocator<T, LinearAllocator, sizeof(T), _Alignof(T)>;
 // Calling resize() or reserve() is recommended before inserting elements due to LinearAllocator.
 template <typename T>
 using set = std::set<T, allocator_t<T>>;
